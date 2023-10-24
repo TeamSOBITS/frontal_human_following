@@ -1,10 +1,68 @@
 #include "frontal_human_following.h"
 
-void dead_man_Callback(const std_msgs::Bool::ConstPtr& msg){
-  dead_man = msg->data;
+// Define and initialize the global variables
+geometry_msgs::Twist vel_robot_real_;
+double safety_radius = 1.0;
+double vel_robot_linear_max_x = 0.7, vel_robot_linear_max_y = 0.7, vel_robot_angular_max_z = 0.9;
+double vel_robot_linear_min_x = 0.01, vel_robot_linear_min_y = 0.01, vel_robot_angular_min_z = 0.01;
+double human_x_odom, human_y_odom, human_yaw_odom;
+double human_vel_x_odom, human_vel_y_odom, human_vel_yaw_odom;
+double human_x_robot, human_y_robot, human_yaw_robot;
+double robot_x_odom, robot_y_odom, siny_cosp, cosy_cosp, robot_yaw_odom;
+double robot_x_human, robot_y_human, robot_yaw_human;
+double gain_repulsive = 10, gain_attractive = 1;
+double force_repulsive_x, force_repulsive_y, force_attractive_x, force_attractive_y, force_total_x, force_total_y;
+double reference_velocity_magnitude, velocity_magnitude_real;
+double gain_p_yaw, gain_p, gain_d;
+double vel_robot_recommand_by_velocity_field_x, vel_robot_recommand_by_velocity_field_y, vel_robot_recommand_by_velocity_field_z;
+double vel_robot_real_x, vel_robot_real_y, vel_robot_real_z;
+double vel_robot_real_x_past, vel_robot_real_y_past, vel_robot_real_z_past;
+double robot_velocity_direction_human, robot_velocity_direction_robot;
+double distance2destination_past, difference_yaw_human_robot_past;
+bool move_sideway = false;
+bool human_odom_init = false;
+bool dead_man = true;
+
+FrontalHumanFollowing::FrontalHumanFollowing() {
+    // Initialize the ROS node
+    ros::NodeHandle nh;
+
+    // Subscribe to ROS topics
+    sub_dead_man = nh.subscribe("/dead_man", 150, &FrontalHumanFollowing::dead_man_Callback, this);
+    sub_human_pose = nh.subscribe("/odom_human_for_human_following_module", 150, &FrontalHumanFollowing::human_pose_odom_Callback, this);
+    sub_robot_pose = nh.subscribe("/odom", 150, &FrontalHumanFollowing::robot_pose_odom_Callback, this);
+
+    // Create ROS topic publisher
+    pub_vel_robot = nh.advertise<geometry_msgs::Twist>("/summit_xl_controller/cmd_vel", 150);
 }
 
-void human_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg){
+
+void FrontalHumanFollowing::run() {
+    ros::Rate loop_rate(150);  // Set the ROS node's loop rate to 150Hz
+
+    while (ros::ok()) {
+        // Perform the following actions in each loop iteration
+
+        // 1. Publish the robot's velocity message
+        pub_vel_robot.publish(vel_robot_real_);
+
+        // 2. Process subscribed messages
+        ros::spinOnce();
+
+        // 3. Allow the node to loop at the specified rate
+        loop_rate.sleep();
+    }
+}
+
+
+
+void FrontalHumanFollowing::dead_man_Callback(const std_msgs::Bool::ConstPtr& msg) {
+    // Get the 'data' value from the message and store it in the class member variable 'dead_man'
+    dead_man = msg->data;
+}
+
+void FrontalHumanFollowing::human_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg) {
+    // Get human pose information from the message and store it in class member variables
     human_odom_init = true;
     human_x_odom = msg->pose.pose.position.x;
     human_y_odom = msg->pose.pose.position.y;
@@ -12,14 +70,17 @@ void human_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg){
     human_vel_x_odom = msg->twist.twist.linear.x;
     human_vel_y_odom = msg->twist.twist.linear.y;
     human_vel_yaw_odom = msg->twist.twist.angular.z;
-    if (msg->twist.twist.linear.z == 1){
+
+    // Perform additional logic based on the data in the message
+    if (msg->twist.twist.linear.z == 1) {
         move_sideway = true;
-    }else{
+    } else {
         move_sideway = false;
     }
 }
 
-void robot_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg){
+
+void FrontalHumanFollowing::robot_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg){
     // Get the odometer data of the robot (x,y,yaw)
     robot_x_odom = msg->pose.pose.position.x;
     robot_y_odom = msg->pose.pose.position.y;
@@ -73,16 +134,16 @@ void robot_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg){
             }else{
                 force_repulsive_x = gain_repulsive * (- log(sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2))/safety_radius)) * (- robot_y_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
                 force_repulsive_y = gain_repulsive * (- log(sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2))/safety_radius)) * (robot_x_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
-            if (robot_x_human < 0){
-                force_attractive_x = gain_attractive * (PI * 3 / 2  + atan2(robot_x_human, - robot_y_human)) * (robot_x_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
-                force_attractive_y = gain_attractive * (PI * 3 / 2  + atan2(robot_x_human, - robot_y_human)) * (robot_y_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
-            }else{
-                force_attractive_x = gain_attractive * (- PI / 2  + atan2(robot_x_human, - robot_y_human)) * (robot_x_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
-                force_attractive_y = gain_attractive * (- PI / 2  + atan2(robot_x_human, - robot_y_human)) * (robot_y_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
-            }
-            force_total_x = force_repulsive_x + force_attractive_x;
-            force_total_y = force_repulsive_y + force_attractive_y;
-            robot_velocity_direction_human = - PI / 2 + atan2(force_total_y , force_total_x);
+                if (robot_x_human < 0){
+                    force_attractive_x = gain_attractive * (PI * 3 / 2  + atan2(robot_x_human, - robot_y_human)) * (robot_x_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
+                    force_attractive_y = gain_attractive * (PI * 3 / 2  + atan2(robot_x_human, - robot_y_human)) * (robot_y_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
+                }else{
+                    force_attractive_x = gain_attractive * (- PI / 2  + atan2(robot_x_human, - robot_y_human)) * (robot_x_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
+                    force_attractive_y = gain_attractive * (- PI / 2  + atan2(robot_x_human, - robot_y_human)) * (robot_y_human / sqrt(pow(robot_y_human, 2) + pow(robot_x_human, 2)));
+                }
+                force_total_x = force_repulsive_x + force_attractive_x;
+                force_total_y = force_repulsive_y + force_attractive_y;
+                robot_velocity_direction_human = - PI / 2 + atan2(force_total_y , force_total_x);
             }
         }
 
@@ -187,34 +248,54 @@ void robot_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg){
 }
 
 
-
-int main(int argc, char **argv)
-{
-
-    ros::init(argc, argv, "frontal_human_following");
-
-    ros::NodeHandle n;
-  
-    ros::Subscriber sub_2 = n.subscribe("/odom", 150, robot_pose_odom_Callback);
-    ros::Subscriber sub_3 = n.subscribe("/dead_man", 150, dead_man_Callback);
-    ros::Subscriber sub_4 = n.subscribe("/odom_human_for_human_following_module", 150, human_pose_odom_Callback);
-
-    ros::Rate loop_rate(150);
-
-    ros::Publisher vel_robot_pub = n.advertise<geometry_msgs::Twist>("/summit_xl_controller/cmd_vel", 150);
-
-
-    while (ros::ok())
-    {
-
-        vel_robot_pub.publish(vel_robot_real_);
-
-        ros::spinOnce();
-
-        loop_rate.sleep();
-
+double FrontalHumanFollowing::heading_calibration(double yaw_original) {
+    while (yaw_original > PI) {
+        yaw_original -= 2.0 * PI;
     }
-    return 0;
+    while (yaw_original < -PI) {
+        yaw_original += 2.0 * PI;
+    }
+    return yaw_original;
 }
 
+double FrontalHumanFollowing::set_limit_velocity_by_velocity_increment(double vel_input, double vel_limit, double acc) {
+    if (acc > 0) {
+        if (vel_input > vel_limit) {
+            vel_input = vel_limit;
+        }
+    } else {
+        if (vel_input < vel_limit) {
+            vel_input = vel_limit;
+        }
+    }
+    return vel_input;
+}
+
+
+double FrontalHumanFollowing::set_upper_lower_limits_velocity(double velocity_input, double upper, double lower) {
+    if (velocity_input > upper) {
+        velocity_input = upper;
+    } else if (velocity_input < -upper) {
+        velocity_input = -upper;
+    } else if (velocity_input < lower && velocity_input > -lower) {
+        velocity_input = 0;
+    }
+    return velocity_input;
+}
+
+
+
+
+int main(int argc, char** argv) {
+    // Initialize the ROS node
+    ros::init(argc, argv, "frontal_human_following");
+
+    // Create a FrontalHumanFollowing object
+    FrontalHumanFollowing frontalHumanFollowing;
+
+    // Call the run method to start the main loop of the ROS node
+    frontalHumanFollowing.run();
+
+    return 0;
+}
 
