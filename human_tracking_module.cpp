@@ -1,41 +1,390 @@
 #include "human_tracking_module.h"
 
+
+// leg detection from laser scan
+double HumanTrackingModule::delta_t_laser                = 0.1;                      // time elapsed between measurements [sec]
+double HumanTrackingModule::bias_lidar_robot             = 0.045;                    // bias of Lidar and robot center [m]
+double HumanTrackingModule::laser_range_max              = 4;                        // scan distance range [m]
+double HumanTrackingModule::laserScan_rad_range          = PI /1.3;                  // scan angle range [rad]
+double HumanTrackingModule::LaserScan_filtered_x [512];                              // point cloud in Cartesian coordinate system [m]
+double HumanTrackingModule::LaserScan_filtered_y [512];                              // point cloud in Cartesian coordinate system [m]
+double HumanTrackingModule::leg_1_x_odom, HumanTrackingModule::leg_1_y_odom, HumanTrackingModule::leg_2_x_odom, HumanTrackingModule::leg_2_y_odom;  // extracted legs [m]
+int HumanTrackingModule::LaserScan_size                      = 512;                  // number of point cloud
+int HumanTrackingModule::LaserScan_filtered_number_clusters  = 1;                    // number of clusters
+int HumanTrackingModule::number_legs                         = 0;                    // number of legs
+int HumanTrackingModule::legs_points_1, HumanTrackingModule::legs_points_2;                               // number of points associated with the legs
+int HumanTrackingModule::counter_nombre_clusters;                                    // counter of clusters
+int HumanTrackingModule::LaserScan_filtered_clusters_start_end [100];                // clusters
+
+
+// robot state & system monitoring
+double HumanTrackingModule::robot_x_odom, HumanTrackingModule::robot_y_odom, HumanTrackingModule::robot_yaw_odom;              // robot pose [m]
+bool HumanTrackingModule::dead_man               = true;                             // safety buttons on the joystick
+bool HumanTrackingModule::robot_odom_init        = false;                            // initialization of robot pose
+bool HumanTrackingModule::human_odom_init        = false;                            // initialization of human pose
+bool HumanTrackingModule::kf_init                = false;                            // initialization of kalman filter
+int HumanTrackingModule::counter_no_legs         = 0;                                // duration of undetected legs [0.1 sec]
+int HumanTrackingModule::counter_dead_man        = 0;                                // duration of safety buttons off [0.1 sec]
+
+
+// human pose estimation parameters
+double HumanTrackingModule::left_leg_measure_x, HumanTrackingModule::left_leg_measure_y, HumanTrackingModule::right_leg_measure_x, HumanTrackingModule::right_leg_measure_y;                    // measurements of leg position [m]
+double HumanTrackingModule::human_x_odom, HumanTrackingModule::human_y_odom, HumanTrackingModule::human_yaw_odom, HumanTrackingModule::human_vel_x_odom, HumanTrackingModule::human_vel_y_odom, HumanTrackingModule::human_vel_yaw_odom;  // human pose estimation in odom [m] [m/s]
+double HumanTrackingModule::human_vel_x_human, HumanTrackingModule::human_vel_y_human;                                                                // estimation of human forward and lateral movement velocity [m/s]
+double HumanTrackingModule::human_x_in_robot, HumanTrackingModule::human_y_in_robot, HumanTrackingModule::human_yaw_in_robot;                                              // human pose estimation in robot coordinate [m]
+double HumanTrackingModule::center_human_x_measure, HumanTrackingModule::center_human_y_measure, HumanTrackingModule::pseudo_human_yaw_odom;                               // measurements of human pose [m]                                                  
+double HumanTrackingModule::left_leg_measure_x_past, HumanTrackingModule::left_leg_measure_y_past, HumanTrackingModule::right_leg_measure_x_past, HumanTrackingModule::right_leg_measure_y_past;// past measurements of leg position [m]
+double HumanTrackingModule::left_leg_predict_x_odom, HumanTrackingModule::left_leg_predict_y_odom, HumanTrackingModule::right_leg_predict_x_odom, HumanTrackingModule::right_leg_predict_y_odom;// prediction of the position of the legs [m]
+double HumanTrackingModule::variance_distance_between_legs_y_history;                                                            // sideways index [m^2]
+double HumanTrackingModule::left_leg_measure_x_history [30], HumanTrackingModule::left_leg_measure_y_history [30];                                    // record of left leg position [m]                             
+double HumanTrackingModule::right_leg_measure_x_history [30], HumanTrackingModule::right_leg_measure_y_history [30];                                  // record of right leg position [m]
+double HumanTrackingModule::distance_between_legs_y_history [30], HumanTrackingModule::dis_between_legs [30];                                         // record of distance between two legs [m]
+int HumanTrackingModule::index_leg_measure_history = 0;                                                                          // index of record
+int HumanTrackingModule::counter_occu = 0;                                                                                       // duration of one detected leg [0.1 sec]
+int HumanTrackingModule::counter_dbl = 0;                                                                                        // index of record
+bool HumanTrackingModule::turn_in_place              = false;                                                                    // motion intention
+bool HumanTrackingModule::move_sideway               = false;
+bool HumanTrackingModule::go_straight                = false;
+bool HumanTrackingModule::go_straight_slight_turn    = false;
+bool HumanTrackingModule::inconnu_move               = false;
+bool HumanTrackingModule::stand_still                = false;
+
+
+// parameters of motion intentions zone
+double HumanTrackingModule::radius_zone_inconnu          = 0.15;             // radius of the inconnu zone
+double HumanTrackingModule::step_width                   = 0.216;            // initial step width
+double HumanTrackingModule::tolerance_x_max              = 0.04;             // tolerance of max step width
+double HumanTrackingModule::tolerance_x_min              = 0.01;             // tolerance of min step width
+double HumanTrackingModule::tolerance_y_average          = 0.1;              // tolerance of average move_sideway zone
+double HumanTrackingModule::tolerence_turn               = 0.04;             // tolerance of turning zone
+
+// parameters of gait
+double HumanTrackingModule::step_length_history [20];                            // record of step_length [m]
+double HumanTrackingModule::T_random, HumanTrackingModule::R_random, HumanTrackingModule::p_random, HumanTrackingModule::offset_random;         // Gait parameter random value
+double HumanTrackingModule::initial_R, HumanTrackingModule::initial_T, HumanTrackingModule::initial_p, HumanTrackingModule::initial_offset;     // Gait parameter initialization value
+double HumanTrackingModule::tolerance_x, HumanTrackingModule::tolerance_y;                            // tolerance of step [m]    
+int HumanTrackingModule::index_step_length_history   = 0;                        // index of step_length record
+int HumanTrackingModule::max_number_record           = 20;                       // max number of step_length record
+
+
+// parameters of Kalman filter
+int HumanTrackingModule::stateSize                           = 9;                // kalman filter matrix size
+int HumanTrackingModule::measSize                            = 3;
+int HumanTrackingModule::controlSize                         = 0;
+KalmanFilter        HumanTrackingModule::kf(stateSize, measSize, controlSize);   // kalman filter
+Eigen::MatrixXd     HumanTrackingModule::A(stateSize, stateSize);               
+Eigen::MatrixXd     HumanTrackingModule::B(0,0);
+Eigen::MatrixXd     HumanTrackingModule::H(measSize, stateSize);
+Eigen::MatrixXd     HumanTrackingModule::P(stateSize, stateSize);
+Eigen::MatrixXd     HumanTrackingModule::R(measSize, measSize);
+Eigen::MatrixXd     HumanTrackingModule::Q(stateSize, stateSize);
+Eigen::VectorXd     HumanTrackingModule::x(stateSize);
+Eigen::VectorXd     HumanTrackingModule::u(0);
+Eigen::VectorXd     HumanTrackingModule::z(measSize);
+Eigen::VectorXd     HumanTrackingModule::res(stateSize);
+Eigen::VectorXd     HumanTrackingModule::res2(stateSize);
+double HumanTrackingModule::variance_measure_x               = 0.0009;            // measurement noise x
+double HumanTrackingModule::variance_measure_y               = 0.0009;            // measurement noise y
+double HumanTrackingModule::variance_measure_yaw             = 0.0441 ;           // measurement noise yaw
+double HumanTrackingModule::variance_measure_yaw_max         = 0.09 ;             // max yaw measurement noise 
+double HumanTrackingModule::variance_measure_yaw_min         = 0.0441 ;           // min yaw measurement noise 
+double HumanTrackingModule::Var_pro_KF                       = 100;               // process noise x,y
+double HumanTrackingModule::Var_pro_KF_yaw                   = 9.8696;            // process noise yaw
+
+
+// frontal human following
+nav_msgs::Odometry HumanTrackingModule::odom_human_for_human_following_module;
+double HumanTrackingModule::yaw_history [10];
+double HumanTrackingModule::moyenne_yaw_history_past;
+double HumanTrackingModule::human_yaw_odom_for_human_following_module;
+int HumanTrackingModule::counter_yaw_history = 0;
+
+
+HumanTrackingModule::HumanTrackingModule() {
+    // Initialize the ROS node
+    ros::NodeHandle nh;
+
+    // Subscribe to ROS topics
+    subLaserScan = nh.subscribe("/hokuyo1_laser/scan", 20, &HumanTrackingModule::laserScanCallback, this);
+    subOdometry = nh.subscribe("/odom", 150, &HumanTrackingModule::robotPoseOdomCallback, this);
+    subDeadMan = nh.subscribe("/dead_man", 150, &HumanTrackingModule::deadManCallback, this);
+
+    // Create ROS topic publisher
+    pubOdomHuman = nh.advertise<nav_msgs::Odometry>("/odom_human_for_human_following_module", 50);
+}
+
+
+void HumanTrackingModule::run() {
+    ros::Rate loop_rate(150);  // Set the ROS node's loop rate to 150Hz
+
+    while (ros::ok()) {
+        // Perform the following actions in each loop iteration
+
+        // 1. Publish the human pose in odom
+        pubOdomHuman.publish(odom_human_for_human_following_module);
+
+        // 2. Process subscribed messages
+        ros::spinOnce();
+
+        // 3. Allow the node to loop at the specified rate
+        loop_rate.sleep();
+    }
+}
+
+
+// Implementation of the heading calibration function
+double HumanTrackingModule::headingCalibration(double yaw_original) {
+    while (yaw_original > PI) {
+        yaw_original = yaw_original - 2 * PI;
+    }
+    while (yaw_original < -PI) {
+        yaw_original = yaw_original + 2 * PI;
+    }
+    return yaw_original;
+}
+
+// Implementation of the function to calculate the average
+double HumanTrackingModule::getAverage(double arr[], int start, int end) {
+    int i = start;
+    double sum = 0;
+    double avg = 0;
+
+    for (i = start; i < end + 1; ++i) {
+        sum += arr[i];
+    }
+
+    avg = sum / (end - start + 1);
+
+    return avg;
+}
+
+// Implementation of the function to calculate the variance
+double HumanTrackingModule::getVariance(double arr[], int start, int end) {
+    int i = start;
+    double avg = 0;
+    double variance = 0;
+
+    avg = getAverage(arr, start, end);
+
+    for (i = start; i < end + 1; ++i) {
+        variance += pow(arr[i] - avg, 2);
+    }
+
+    return variance;
+}
+
+
+// Implementation of the human orientation estimation function
+double HumanTrackingModule::humanOrientationEstimation(double distance_between_legs_x_human, double distance_between_legs_y_human, double tolerance_x, double tolerance_y, double tolerance_turn) {
+    double yaw_human_change, A, B, C, D, D2, limit_changement, scaling_ratio;
+    limit_changement = PI / 10;
+    scaling_ratio = 0.9;
+    A = distance_between_legs_x_human;
+    B = distance_between_legs_y_human;
+    C = step_width;
+    D = (B + sqrt(B * B + A * A - C * C)) / (A + C);
+    D2 = (B - sqrt(B * B + A * A - C * C)) / (A + C);
+
+    if (A > tolerance_y){
+        //right leg ahead
+        if (- B < C + tolerance_x  && - B >  C - tolerance_x){
+            //in zone go ahead
+            yaw_human_change = 0;
+            go_straight = true;
+        }else if (- B > C + tolerance_x){
+            //in zone turn right and go ahead
+            yaw_human_change = 2 * atan (D2) + PI/2;
+            go_straight_slight_turn = true;
+        }else{
+            if ((pow(B,2) + pow(A,2)) > pow(C + tolerence_turn,2)){
+                //in zone turn left and go ahead
+                yaw_human_change = 2 * atan (D2) + PI / 2;
+                go_straight_slight_turn = true;
+            }else if (pow(B,2) + pow(A,2) <  pow(radius_zone_inconnu,2)){
+                //in zone inconnu
+                yaw_human_change = 0;
+                inconnu_move = true;
+            }else{
+                //in zone turn left
+                yaw_human_change = atan2(B, A) + PI / 2;
+                turn_in_place = true;
+            }
+        }
+    }else if (A < tolerance_y && A > - tolerance_y){
+        //in zone step sideway
+        yaw_human_change = 0;
+        if (- B > C + 0.06  || - B <  C - 0.06){
+            if(abs(human_vel_y_human) > 0.1){
+                move_sideway = true;
+            }else{
+                stand_still = true;
+            }
+        }else{
+            stand_still = true;
+        }
+    }else{
+        //left leg ahead
+        if (- B < C + tolerance_x && - B > C - tolerance_x){
+            //in zone go ahead
+            yaw_human_change = 0;
+            go_straight = true;
+        }else if (- B > C + tolerance_x){
+            //in zone turn left and go ahead
+            yaw_human_change = 2 * atan (D) + PI / 2;
+
+            go_straight_slight_turn = true;
+        }else{
+            if ((pow(B,2) + pow(A,2)) > pow(C + tolerence_turn,2)){
+                //in zone turn right and go ahead
+                yaw_human_change = 2 * atan (D) + PI / 2;
+                go_straight_slight_turn = true;
+            }else if ((pow(B,2) + pow(A,2)) < pow(radius_zone_inconnu,2)){
+                //in zone inconnu
+                yaw_human_change = 0;
+                inconnu_move = true;
+            }else{
+                //in zone turn right
+                yaw_human_change = atan2(B, A) + PI / 2;
+                turn_in_place = true;
+            }
+        }
+    }
+
+    if (isnan(yaw_human_change) || abs(yaw_human_change) > PI / 2) {
+        yaw_human_change = 0.0;
+    }
+
+    return yaw_human_change / 2 * 1.2;
+}
+
+
+// Implementation of leg position optimization function
+double HumanTrackingModule::legPositionOptimizationFunction(
+    unsigned n, const double *x, double *grad, void *data
+) {
+    double objectf, objectf_b, objectf_s, e;
+    int i = counter_nombre_clusters;
+    
+    // calcul objectif functon
+    objectf = 0;
+    for (int k = LaserScan_filtered_clusters_start_end[2 * i]; k < LaserScan_filtered_clusters_start_end[2 * i + 1]; ++k){
+      objectf = objectf - sqrt((( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - x[1])*(LaserScan_filtered_y[k] - x[1]) - (x[2])*(x[2]))*(( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - x[1])*(LaserScan_filtered_y[k] - x[1]) - (x[2])*(x[2])));
+    }
+
+    e = 0.00001;
+
+    // calcul gradient x0
+    objectf_b = 0;
+    objectf_s = 0;
+    for (int k = LaserScan_filtered_clusters_start_end[2 * i]; k < LaserScan_filtered_clusters_start_end[2 * i + 1]; ++k){
+      objectf_b = objectf_b - sqrt((( LaserScan_filtered_x[k] - (x[0]+e))*( LaserScan_filtered_x[k] - (x[0]+e)) + (LaserScan_filtered_y[k] - x[1])*(LaserScan_filtered_y[k] - x[1]) - (x[2])*(x[2]))*(( LaserScan_filtered_x[k] - (x[0]+e))*( LaserScan_filtered_x[k] - (x[0]+e)) + (LaserScan_filtered_y[k] - x[1])*(LaserScan_filtered_y[k] - x[1]) - (x[2])*(x[2])));
+    }
+    for (int k = LaserScan_filtered_clusters_start_end[2 * i]; k < LaserScan_filtered_clusters_start_end[2 * i + 1]; ++k){
+      objectf_s = objectf_s - sqrt((( LaserScan_filtered_x[k] - (x[0]-e))*( LaserScan_filtered_x[k] - (x[0]-e)) + (LaserScan_filtered_y[k] - x[1])*(LaserScan_filtered_y[k] - x[1]) - (x[2])*(x[2]))*(( LaserScan_filtered_x[k] - (x[0]-e))*( LaserScan_filtered_x[k] - (x[0]-e)) + (LaserScan_filtered_y[k] - x[1])*(LaserScan_filtered_y[k] - x[1]) - (x[2])*(x[2])));
+    }
+    grad[0]= (objectf_b - objectf_s) / 2 * e;
+
+    // calcul gradient x1
+    objectf_b = 0;
+    objectf_s = 0;
+    for (int k = LaserScan_filtered_clusters_start_end[2 * i]; k < LaserScan_filtered_clusters_start_end[2 * i + 1]; ++k){
+      objectf_b = objectf_b - sqrt((( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - (x[1] + e))*(LaserScan_filtered_y[k] - (x[1] + e)) - (x[2])*(x[2]))*(( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - (x[1] + e))*(LaserScan_filtered_y[k] - (x[1] + e)) - (x[2])*(x[2])));
+    }
+    for (int k = LaserScan_filtered_clusters_start_end[2 * i]; k < LaserScan_filtered_clusters_start_end[2 * i + 1]; ++k){
+      objectf_s = objectf_s - sqrt((( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - (x[1] - e))*(LaserScan_filtered_y[k] - (x[1] - e)) - (x[2])*(x[2]))*(( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - (x[1] - e))*(LaserScan_filtered_y[k] - (x[1] - e)) - (x[2])*(x[2])));
+    }
+    grad[1]= (objectf_b - objectf_s) / 2 * e;
+
+    // calcul gradient x2
+    objectf_b = 0;
+    objectf_s = 0;
+    for (int k = LaserScan_filtered_clusters_start_end[2 * i]; k < LaserScan_filtered_clusters_start_end[2 * i + 1]; ++k){
+      objectf_b = objectf_b - sqrt((( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - (x[1]))*(LaserScan_filtered_y[k] - (x[1])) - (x[2]+ e)*(x[2]+ e))*(( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - (x[1]))*(LaserScan_filtered_y[k] - (x[1])) - (x[2]+ e)*(x[2]+ e)));
+    }
+    for (int k = LaserScan_filtered_clusters_start_end[2 * i]; k < LaserScan_filtered_clusters_start_end[2 * i + 1]; ++k){
+      objectf_s = objectf_s - sqrt((( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - (x[1]))*(LaserScan_filtered_y[k] - (x[1])) - (x[2]- e)*(x[2]- e))*(( LaserScan_filtered_x[k] - x[0])*( LaserScan_filtered_x[k] - x[0]) + (LaserScan_filtered_y[k] - (x[1]))*(LaserScan_filtered_y[k] - (x[1])) - (x[2]- e)*(x[2]- e)));
+    }
+    grad[2]= (objectf_b - objectf_s) / 2 * e;
+    return objectf;
+}
+
+// Implementation of gait parameters optimization function
+double HumanTrackingModule::gaitParametersOptimizationFunction(
+    unsigned n, const double *x, double *grad, void *data
+) {
+    // calcul objectif functon
+    // x : R_rand, T_rand, p_rand, offset_rand
+    double objectf, error;
+    objectf = 0;
+
+    for (int j = 0; j < max_number_record; ++j){
+        if ((index_step_length_history + j) > (max_number_record - 1)){
+            error = pow((step_length_history[index_step_length_history + j - max_number_record] - (x[0]) * cos(2*PI*j*delta_t_laser/ (x[1]) + (x[2])) - (x[3])) * sqrt(j), 2);
+        }else{
+            error = pow((step_length_history[index_step_length_history + j] - (x[0]) * cos(2*PI*j*delta_t_laser/ (x[1]) + (x[2])) - (x[3])) * sqrt(j), 2);
+        }
+        objectf = objectf - error;
+    }
+
+    return objectf;
+}
+
+
 // get information about the security buttons of the remote control
-void dead_man_Callback(const std_msgs::Bool::ConstPtr& msg)
+void HumanTrackingModule::deadManCallback(const std_msgs::Bool::ConstPtr& msg)
 {
     // dead_man = true : not safe
     dead_man = msg->data;
+
+    // If the dead-man switch is engaged (not safe), increment a counter.
     if (dead_man == true) {
         counter_dead_man++;
-    }else{
+    } else {
+        // If the dead-man switch is disengaged (safe), reset the counter to 0.
         counter_dead_man = 0;
     }
-    // if there is no security permission for a long time, restart the system
-    if (counter_dead_man > 10){
+
+    // If there is no security permission for a long time (counter_dead_man exceeds 10),
+    // perform the following actions:
+
+    if (counter_dead_man > 10) {
+        // 1. Set the human_odom_init flag to false.
         human_odom_init = false;
+
+        // 2. Set the kf_init flag to false. This likely refers to the initialization of a Kalman filter.
         kf_init = false;
+
+        // 3. Set the robot_odom_init flag to false.
         robot_odom_init = false;
-        counter_dbl =0;
+
+        // 4. Reset the counter_dbl variable to 0. It's unclear what this counter represents,
+        //    but it's being reset when a safety condition is met.
+        counter_dbl = 0;
     }
 }
 
 // get the pose information of the robot
-void robot_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg)
+void HumanTrackingModule::robotPoseOdomCallback(const nav_msgs::Odometry::ConstPtr& msg)
 {
-  // Get the odometer data of the robot (x,y,yaw)
-  robot_odom_init = true;
-  robot_x_odom = msg->pose.pose.position.x;
-  robot_y_odom = msg->pose.pose.position.y;
+    // Indicate that robot odometry information has been received and initialized.
+    robot_odom_init = true;
 
-  // yaw (z-axis rotation)
-  double siny_cosp = 2 * (msg->pose.pose.orientation.w * msg->pose.pose.orientation.z + msg->pose.pose.orientation.x * msg->pose.pose.orientation.y);
-  double cosy_cosp = 1 - 2 * (msg->pose.pose.orientation.y * msg->pose.pose.orientation.y + msg->pose.pose.orientation.z * msg->pose.pose.orientation.z);
-  robot_yaw_odom = std::atan2(siny_cosp, cosy_cosp);
+    // Extract the robot's position information (x, y) from the received message.
+    robot_x_odom = msg->pose.pose.position.x;
+    robot_y_odom = msg->pose.pose.position.y;
+
+    // Extract the robot's yaw (z-axis rotation) from the received message's orientation.
+    // This involves some trigonometric calculations to convert the quaternion orientation to yaw.
+    double siny_cosp = 2 * (msg->pose.pose.orientation.w * msg->pose.pose.orientation.z + msg->pose.pose.orientation.x * msg->pose.pose.orientation.y);
+    double cosy_cosp = 1 - 2 * (msg->pose.pose.orientation.y * msg->pose.pose.orientation.y + msg->pose.pose.orientation.z * msg->pose.pose.orientation.z);
+
+    // Calculate the yaw angle (robot_yaw_odom) using the arctangent of the above values.
+    robot_yaw_odom = std::atan2(siny_cosp, cosy_cosp);
 }
 
 
 // extract human legs from point cloud and then estimate human pose
-void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
+void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstPtr& msg){
     auto start = system_clock::now(); // timer
     // check robot odom and dead_man_button
     if (robot_odom_init == true && dead_man == true){
@@ -49,7 +398,7 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
         int LaserScan_filtered_sequence [512]; // index in the raw point cloud
 
         // convert point cloud to (x,y) according to preset scan range
-        for (int i = (((msg->angle_max - msg->angle_min) / LaserScan_rad_range) - 1 ) / ((msg->angle_max - msg->angle_min) / LaserScan_rad_range) / 2 * LaserScan_size; i < (1 - (((msg->angle_max - msg->angle_min) / LaserScan_rad_range) - 1 ) / ((msg->angle_max - msg->angle_min) / LaserScan_rad_range) / 2) * LaserScan_size; ++i){
+        for (int i = (((msg->angle_max - msg->angle_min) / laserScan_rad_range) - 1 ) / ((msg->angle_max - msg->angle_min) / laserScan_rad_range) / 2 * LaserScan_size; i < (1 - (((msg->angle_max - msg->angle_min) / laserScan_rad_range) - 1 ) / ((msg->angle_max - msg->angle_min) / laserScan_rad_range) / 2) * LaserScan_size; ++i){
             if (msg->ranges[i] < laser_range_max){
                 LaserScan_filtered_x[LaserScan_filtered_number_points] = msg->ranges[i] * cos(((msg->angle_max - msg->angle_min) * i / LaserScan_size + msg->angle_min));
                 LaserScan_filtered_y[LaserScan_filtered_number_points] = msg->ranges[i] * sin(((msg->angle_max - msg->angle_min) * i / LaserScan_size + msg->angle_min));
@@ -118,7 +467,7 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
                     nlopt_set_upper_bounds(opt, ub);
 
                     // objective function
-                    nlopt_set_max_objective(opt, leg_position_opt_function, NULL);
+                    nlopt_set_max_objective(opt, legPositionOptimizationFunction, NULL);
 
                     // stopping criterion
                     nlopt_set_xtol_rel(opt, tol);
@@ -266,8 +615,8 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
             if (legs_detected == 2){
                 human_odom_init = true;
                 double yaw_human_relative = atan2(leg_1_y_odom - leg_2_y_odom, leg_1_x_odom - leg_2_x_odom) + PI/2;
-                double yaw_human_relative_1 = heading_calibration(yaw_human_relative - robot_yaw_odom);
-                double yaw_human_relative_2 = heading_calibration(yaw_human_relative - robot_yaw_odom - PI);
+                double yaw_human_relative_1 = headingCalibration(yaw_human_relative - robot_yaw_odom);
+                double yaw_human_relative_2 = headingCalibration(yaw_human_relative - robot_yaw_odom - PI);
 
                 // assume that the user is standing facing the robot during initialization
                 if (abs(yaw_human_relative_1) > abs(yaw_human_relative_2)){
@@ -338,7 +687,7 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
                 // determine the occlusion angle
                 double polar_angle_odom                     = atan2(visible_leg_y - robot_y_odom, visible_leg_x - robot_x_odom);
                 double polar_angle_between_legs_odom        = atan2(right_leg_predict_y_odom - left_leg_predict_y_odom, right_leg_predict_x_odom - left_leg_predict_x_odom);
-                double delta_polar_angle                    = heading_calibration(polar_angle_odom - polar_angle_between_legs_odom);
+                double delta_polar_angle                    = headingCalibration(polar_angle_odom - polar_angle_between_legs_odom);
                 if (delta_polar_angle > PI / 2){
                     delta_polar_angle = delta_polar_angle - PI;
                 }else if(delta_polar_angle < - PI / 2){
@@ -445,7 +794,7 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
             move_sideway = false;
 
             // calcul human_orientation_increment with motion intention zoning
-            double human_orientation_increment = human_orientation_estimation(distance_between_legs_x_human, distance_between_legs_y_human, tolerance_x, tolerance_y, tolerence_turn);
+            double human_orientation_increment = humanOrientationEstimation(distance_between_legs_x_human, distance_between_legs_y_human, tolerance_x, tolerance_y, tolerence_turn);
 
             // set boundaries for human_orientation_increment
             int ratio = 15;
@@ -481,15 +830,15 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
                 index_leg_measure_history -= 30;
             }
 
-            variance_distance_between_legs_y_history = getVariacnce(distance_between_legs_y_history, 0, 29);
+            variance_distance_between_legs_y_history = getVariance(distance_between_legs_y_history, 0, 29);
             double instruct_statique_1  = abs(left_leg_measure_x - getAverage(left_leg_measure_x_history, 0, 29));
             double instruct_statique_2  = abs(left_leg_measure_y - getAverage(left_leg_measure_y_history, 0, 29));
             double instruct_statique_3  = abs(right_leg_measure_x - getAverage(right_leg_measure_x_history, 0, 29));
             double instruct_statique_4  = abs(right_leg_measure_y - getAverage(right_leg_measure_y_history, 0, 29));
             double instruct_statique    = pow(instruct_statique_1+ instruct_statique_2 +instruct_statique_3+instruct_statique_4, 2) * 10;
 
-            double gap_with_static_orientation_1 = heading_calibration(atan2(left_leg_measure_y - right_leg_measure_y, left_leg_measure_x - right_leg_measure_x) + PI/2 - pseudo_human_yaw_odom);
-            double gap_with_static_orientation_2 = heading_calibration(atan2(left_leg_measure_y - right_leg_measure_y, left_leg_measure_x - right_leg_measure_x) - PI/2 - pseudo_human_yaw_odom);
+            double gap_with_static_orientation_1 = headingCalibration(atan2(left_leg_measure_y - right_leg_measure_y, left_leg_measure_x - right_leg_measure_x) + PI/2 - pseudo_human_yaw_odom);
+            double gap_with_static_orientation_2 = headingCalibration(atan2(left_leg_measure_y - right_leg_measure_y, left_leg_measure_x - right_leg_measure_x) - PI/2 - pseudo_human_yaw_odom);
             double yaw_cap_human_real;
 
             if (abs(gap_with_static_orientation_1) < abs(gap_with_static_orientation_2)){
@@ -506,8 +855,8 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     
     
             // correct pseudo orientation with velocity direction when the user moves quickly
-            double gap_with_velocity_orientation_1 = heading_calibration(atan2(human_vel_y_odom, human_vel_x_odom) - pseudo_human_yaw_odom);
-            double gap_with_velocity_orientation_2 = heading_calibration(atan2(human_vel_y_odom, human_vel_x_odom) + PI - pseudo_human_yaw_odom);
+            double gap_with_velocity_orientation_1 = headingCalibration(atan2(human_vel_y_odom, human_vel_x_odom) - pseudo_human_yaw_odom);
+            double gap_with_velocity_orientation_2 = headingCalibration(atan2(human_vel_y_odom, human_vel_x_odom) + PI - pseudo_human_yaw_odom);
             double yaw_cap_human_2_real;
 
             if (abs (gap_with_velocity_orientation_1) < abs(gap_with_velocity_orientation_2)){
@@ -652,7 +1001,7 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
                 nlopt_set_upper_bounds(opt, ub);
 
                 // objective function
-                nlopt_set_max_objective(opt, gait_parameters_opt_function, NULL);
+                nlopt_set_max_objective(opt, gaitParametersOptimizationFunction, NULL);
 
                 // stopping criterion
                 nlopt_set_xtol_rel(opt, tol);
@@ -719,7 +1068,7 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
             }
             moyenne_yaw_history_past = new_moyenne_yaw_history;
 
-            human_yaw_odom_for_human_following_module = heading_calibration(new_moyenne_yaw_history);
+            human_yaw_odom_for_human_following_module = headingCalibration(new_moyenne_yaw_history);
 
             // set odom human 
             odom_human_for_human_following_module.header.stamp                 = ros::Time::now();
@@ -754,27 +1103,15 @@ void hokuyo_sacn_Callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     auto duration   = duration_cast<microseconds>(end - start);
 }
 
-
-int main(int argc, char **argv){
-
+int main(int argc, char** argv) {
+    // Initialize the ROS node
     ros::init(argc, argv, "human_tracking_module");
 
-    ros::NodeHandle n;
-  
-    ros::Subscriber sub_1 = n.subscribe("/hokuyo1_laser/scan", 20, hokuyo_sacn_Callback);
-    ros::Subscriber sub_2 = n.subscribe("/odom", 150, robot_pose_odom_Callback);
-    ros::Subscriber sub_3 = n.subscribe("/dead_man", 150, dead_man_Callback);
-    //ros::Subscriber sub_4 = n.subscribe("/vrpn_client_node/summit_xl/pose", 1000, velCallback1);
-    //ros::Subscriber sub_5 = n.subscribe("/vrpn_client_node/human/pose", 1000, velCallback2);
-    ros::Publisher odom_human_for_human_following_module_ = n.advertise<nav_msgs::Odometry>("/odom_human_for_human_following_module", 50);
-    ros::Rate loop_rate(150);
+    // Create a FrontalHumanFollowing object
+    HumanTrackingModule HumanTrackingModule;
 
-    while (ros::ok()){
-        odom_human_for_human_following_module_.publish(odom_human_for_human_following_module);
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
+    // Call the run method to start the main loop of the ROS node
+    HumanTrackingModule.run();
+
     return 0;
 }
-
-
