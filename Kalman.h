@@ -1,106 +1,109 @@
-#ifndef _KALMAN_H
-#define _KALMAN_H
 #include <Eigen/Dense>
-
 
 class KalmanFilter
 {
 private:
-    int stateSize; 			//state variable's dimenssion
-    int measSize; 			//measurement variable's dimession
-    int uSize; 			//control variables's dimenssion
-    Eigen::VectorXd x;
-    Eigen::VectorXd z;
-    Eigen::MatrixXd A;
-    Eigen::MatrixXd B;
-    Eigen::VectorXd u;
-    Eigen::MatrixXd P;			//coveriance
-    Eigen::MatrixXd H;
-    Eigen::MatrixXd R;			//measurement noise covariance
-    Eigen::MatrixXd Q;			//process noise covariance
+    int stateSize;            // Dimension of state variables
+    int measSize;             // Dimension of measurement variables
+    int uSize;                // Dimension of control variables
+    Eigen::VectorXd x;        // State vector
+    Eigen::VectorXd z;        // Measurement vector
+    Eigen::MatrixXd A;        // State transition matrix
+    Eigen::MatrixXd B;        // Control input matrix
+    Eigen::VectorXd u;        // Control input vector
+    Eigen::MatrixXd P;        // Covariance matrix
+    Eigen::MatrixXd H;        // Measurement matrix
+    Eigen::MatrixXd R;        // Measurement noise covariance matrix
+    Eigen::MatrixXd Q;        // Process noise covariance matrix
+
 public:
-    KalmanFilter(int stateSize_, int measSize_,int uSize_);
-    ~KalmanFilter(){}
-    void init(Eigen::VectorXd &x_, Eigen::MatrixXd& P_,Eigen::MatrixXd& R_, Eigen::MatrixXd& Q_);
-    Eigen::VectorXd predict(Eigen::MatrixXd& A_);
-    Eigen::VectorXd predict(Eigen::MatrixXd& A_, Eigen::MatrixXd &B_, Eigen::VectorXd &u_);
-    Eigen::VectorXd update(Eigen::MatrixXd& H_,Eigen::VectorXd z_meas);
+    KalmanFilter(int stateSize_ = 0, int measSize_ = 0, int uSize_ = 0);
+    ~KalmanFilter() {}
+
+    // Initialize the Kalman filter with initial state, covariance, measurement noise, and process noise.
+    void init(const Eigen::VectorXd &x_, const Eigen::MatrixXd &P_, const Eigen::MatrixXd &R_, const Eigen::MatrixXd &Q_);
+
+    // Predict the next state based on state transition matrix A, control input matrix B, and control input vector u.
+    Eigen::VectorXd predict(const Eigen::MatrixXd &A_);
+    
+    // Predict the next state based on state transition matrix A only.
+    Eigen::VectorXd predict(const Eigen::MatrixXd &A_, const Eigen::MatrixXd &B_, const Eigen::VectorXd &u_);
+
+    // Update the state using the measurement matrix H and the measured data z_meas.
+    Eigen::VectorXd update(const Eigen::MatrixXd &H_, const Eigen::VectorXd &z_meas);
 };
- #endif
 
-KalmanFilter::KalmanFilter(int stateSize_ = 0, int measSize_ = 0, int uSize_=0) :stateSize(stateSize_), measSize(measSize_), uSize(uSize_)
+KalmanFilter::KalmanFilter(int stateSize_, int measSize_, int uSize_)
+    : stateSize(stateSize_), measSize(measSize_), uSize(uSize_)
 {
-    x.resize(stateSize);
-    x.setZero();
-
-    A.resize(stateSize, stateSize);
-    A.setIdentity();
-
-    u.resize(uSize);
-    u.transpose();
-    u.setZero();
-
-    B.resize(stateSize, uSize);
-    B.setZero();
-
-    P.resize(stateSize, stateSize);
-    P.setIdentity();
-
-    H.resize(measSize, stateSize);
-    H.setZero();
-
-    z.resize(measSize);
-    z.setZero();
-
-    Q.resize(stateSize, stateSize);
-    Q.setZero();
-
-    R.resize(measSize, measSize);
-    R.setZero();
+    x = Eigen::VectorXd::Zero(stateSize);
+    A = Eigen::MatrixXd::Identity(stateSize, stateSize);
+    u = Eigen::VectorXd::Zero(uSize);
+    B = Eigen::MatrixXd::Zero(stateSize, uSize);
+    P = Eigen::MatrixXd::Identity(stateSize, stateSize);
+    H = Eigen::MatrixXd::Zero(measSize, stateSize);
+    z = Eigen::VectorXd::Zero(measSize);
+    Q = Eigen::MatrixXd::Zero(stateSize, stateSize);
+    R = Eigen::MatrixXd::Zero(measSize, measSize);
 }
 
-void KalmanFilter::init(Eigen::VectorXd &x_, Eigen::MatrixXd& P_, Eigen::MatrixXd& R_, Eigen::MatrixXd& Q_)
+void KalmanFilter::init(const Eigen::VectorXd &x_, const Eigen::MatrixXd &P_, const Eigen::MatrixXd &R_, const Eigen::MatrixXd &Q_)
 {
-    x = x_;
-    P = P_;
-    R = R_;
-    Q = Q_;
+    x = x_;  // Set the initial state
+    P = P_;  // Set the initial covariance matrix
+    R = R_;  // Set the measurement noise covariance matrix
+    Q = Q_;  // Set the process noise covariance matrix
 }
-Eigen::VectorXd KalmanFilter::predict(Eigen::MatrixXd& A_, Eigen::MatrixXd &B_, Eigen::VectorXd &u_)
+
+Eigen::VectorXd KalmanFilter::predict(const Eigen::MatrixXd &A_, const Eigen::MatrixXd &B_, const Eigen::VectorXd &u_)
 {
     A = A_;
     B = B_;
     u = u_;
-    x = A*x + B*u;
+    
+    // Predict the next state based on control input
+    x = A * x + B * u;
     Eigen::MatrixXd A_T = A.transpose();
-    P = A*P*A_T + Q;
+    
+    // Update the covariance matrix
+    P = A * P * A_T + Q;
+    
     return x;
 }
 
-Eigen::VectorXd KalmanFilter::predict(Eigen::MatrixXd& A_)
+Eigen::VectorXd KalmanFilter::predict(const Eigen::MatrixXd &A_)
 {
     A = A_;
-    x = A*x;
+    
+    // Predict the next state without control input
+    x = A * x;
     Eigen::MatrixXd A_T = A.transpose();
-    P = A*P*A_T + Q; 
-
+    
+    // Update the covariance matrix
+    P = A * P * A_T + Q;
+    
     return x;
 }
 
-Eigen::VectorXd KalmanFilter::update(Eigen::MatrixXd& H_,Eigen::VectorXd z_meas)
+Eigen::VectorXd KalmanFilter::update(const Eigen::MatrixXd &H_, const Eigen::VectorXd &z_meas)
 {
     H = H_;
-    Eigen::MatrixXd temp1, temp2,Ht;
+    Eigen::MatrixXd temp1, temp2, Ht;
     Ht = H.transpose();
-    temp1 = H*P*Ht + R;
+    
+    // Calculate Kalman gain
+    temp1 = H * P * Ht + R;
     temp2 = temp1.inverse();
-    Eigen::MatrixXd K = P*Ht*temp2;
-    z = H*x;
-    x = x + K*(z_meas-z);
+    Eigen::MatrixXd K = P * Ht * temp2;
+    
+    z = H * x;  // Predicted measurement based on current state
+    
+    // Update the state based on measurement and Kalman gain
+    x = x + K * (z_meas - z);
+    
+    // Update the covariance matrix
     Eigen::MatrixXd I = Eigen::MatrixXd::Identity(stateSize, stateSize);
-    P = (I - K*H)*P;
-
+    P = (I - K * H) * P;
+    
     return x;
 }
-
-
