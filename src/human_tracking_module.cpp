@@ -1,4 +1,4 @@
-#include "human_tracking_module.h"
+#include <frontal_human_following/human_tracking_module.h>
 
 
 // leg detection from laser scan

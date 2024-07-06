@@ -1,10 +1,10 @@
 #ifndef FRONTAL_HUMAN_FOLLOWING_H
 #define FRONTAL_HUMAN_FOLLOWING_H
 
-#include "ros/ros.h"
+#include <ros/ros.h>
 #include "std_msgs/Bool.h"
 #include "geometry_msgs/Twist.h"
-#include <nav_msgs/Odometry.h>
+#include "nav_msgs/Odometry.h"
 
 class FrontalHumanFollowing {
 public:
