@@ -5,11 +5,15 @@
 double HumanTrackingModule::delta_t_laser                = 0.1;                      // time elapsed between measurements [sec]
 double HumanTrackingModule::bias_lidar_robot             = 0.045;                    // bias of Lidar and robot center [m]
 double HumanTrackingModule::laser_range_max              = 4;                        // scan distance range [m]
-double HumanTrackingModule::laserScan_rad_range          = PI /1.3;                  // scan angle range [rad]
-double HumanTrackingModule::LaserScan_filtered_x [512];                              // point cloud in Cartesian coordinate system [m]
-double HumanTrackingModule::LaserScan_filtered_y [512];                              // point cloud in Cartesian coordinate system [m]
+// double HumanTrackingModule::laserScan_rad_range          = PI /1.3;                  // scan angle range [rad]
+double HumanTrackingModule::laserScan_rad_range          = PI;                  // scan angle range [rad]
+// double HumanTrackingModule::LaserScan_filtered_x [512];                              // point cloud in Cartesian coordinate system [m]
+double HumanTrackingModule::LaserScan_filtered_x [513];                              // point cloud in Cartesian coordinate system [m]
+// double HumanTrackingModule::LaserScan_filtered_y [512];                              // point cloud in Cartesian coordinate system [m]
+double HumanTrackingModule::LaserScan_filtered_y [513];                              // point cloud in Cartesian coordinate system [m]
 double HumanTrackingModule::leg_1_x_odom, HumanTrackingModule::leg_1_y_odom, HumanTrackingModule::leg_2_x_odom, HumanTrackingModule::leg_2_y_odom;  // extracted legs [m]
-int HumanTrackingModule::LaserScan_size                      = 512;                  // number of point cloud
+// int HumanTrackingModule::LaserScan_size                      = 512;                  // number of point cloud
+int HumanTrackingModule::LaserScan_size                      = 513;                  // number of point cloud
 int HumanTrackingModule::LaserScan_filtered_number_clusters  = 1;                    // number of clusters
 int HumanTrackingModule::number_legs                         = 0;                    // number of legs
 int HumanTrackingModule::legs_points_1, HumanTrackingModule::legs_points_2;                               // number of points associated with the legs
@@ -102,15 +106,15 @@ int HumanTrackingModule::counter_yaw_history = 0;
 
 HumanTrackingModule::HumanTrackingModule() {
     // Initialize the ROS node
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~");
 
     // Subscribe to ROS topics
-    subLaserScan = nh.subscribe("/hokuyo1_laser/scan", 20, &HumanTrackingModule::laserScanCallback, this);
+    subLaserScan = nh.subscribe("/scan", 20, &HumanTrackingModule::laserScanCallback, this);
     subOdometry = nh.subscribe("/odom", 150, &HumanTrackingModule::robotPoseOdomCallback, this);
-    subDeadMan = nh.subscribe("/dead_man", 150, &HumanTrackingModule::deadManCallback, this);
+    // subDeadMan = nh.subscribe("/dead_man", 150, &HumanTrackingModule::deadManCallback, this);
 
     // Create ROS topic publisher
-    pubOdomHuman = nh.advertise<nav_msgs::Odometry>("/odom_human_for_human_following_module", 50);
+    pubOdomHuman = nh.advertise<nav_msgs::Odometry>("odom_human", 50);
 }
 
 
@@ -387,7 +391,8 @@ void HumanTrackingModule::robotPoseOdomCallback(const nav_msgs::Odometry::ConstP
 void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstPtr& msg){
     auto start = system_clock::now(); // timer
     // check robot odom and dead_man_button
-    if (robot_odom_init == true && dead_man == true){
+    // if (robot_odom_init == true && dead_man == true){
+    if (robot_odom_init == true){
 
         // check scan size
         if (LaserScan_size != msg->ranges.size()){
@@ -395,7 +400,10 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
         }
 
         int LaserScan_filtered_number_points = 0; // initialize the number of filtered point clouds
-        int LaserScan_filtered_sequence [512]; // index in the raw point cloud
+        // int LaserScan_filtered_sequence [512]; // index in the raw point cloud
+        int LaserScan_filtered_sequence [513]; // index in the raw point cloud
+
+        // std::cout << "msg->angle_max: " << msg->angle_max << std::endl;
 
         // convert point cloud to (x,y) according to preset scan range
         for (int i = (((msg->angle_max - msg->angle_min) / laserScan_rad_range) - 1 ) / ((msg->angle_max - msg->angle_min) / laserScan_rad_range) / 2 * LaserScan_size; i < (1 - (((msg->angle_max - msg->angle_min) / laserScan_rad_range) - 1 ) / ((msg->angle_max - msg->angle_min) / laserScan_rad_range) / 2) * LaserScan_size; ++i){
@@ -419,7 +427,6 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                 LaserScan_filtered_number_clusters++;
             }
         }
-  
   
         LaserScan_filtered_clusters_start_end[2 * LaserScan_filtered_number_clusters -1] = LaserScan_filtered_number_points;
 
@@ -447,7 +454,7 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                 }
 
                 if (pow(human_x_in_robot - initial_state_x - bias_lidar_robot,2) + pow(human_y_in_robot - initial_state_y,2) < pow(0.6, 2) || human_odom_init == false || human_odom_init == true){
-        
+
                     auto start = system_clock::now(); // timer
 
                     // optimization
@@ -467,7 +474,8 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                     nlopt_set_upper_bounds(opt, ub);
 
                     // objective function
-                    nlopt_set_max_objective(opt, legPositionOptimizationFunction, NULL);
+                    // nlopt_set_max_objective(opt, legPositionOptimizationFunction, NULL);
+                    nlopt_set_max_objective(opt, legPositionOptimizationFunction, &f_max);
 
                     // stopping criterion
                     nlopt_set_xtol_rel(opt, tol);
@@ -482,6 +490,8 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
 
                     // add detected Legs
                     if (abs(f_max) < 0.08){
+                        std :: cout << "legs detected" << std::endl;
+
                         legs_center_x[number_legs] = x[0] + bias_lidar_robot;
                         legs_center_y[number_legs] = x[1];
                         legs_R[number_legs] = x[2];
@@ -490,18 +500,19 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                         legs_distange_to_lidar[number_legs] = sqrt(pow(x[0] + bias_lidar_robot,2)+ pow(x[1],2));
                         number_legs++;
                     }else{
-                        //std::cout << "not a leg" <<  std::endl;
+                        // std::cout << "not a leg" <<  std::endl;
                     }
                 }else{
-                    //std::cout << "not a leg" <<  std::endl;
+                    // std::cout << "not a leg" <<  std::endl;
                 }
             }else{
-                //std::cout << "not a leg" <<  std::endl;
+                // std::cout << "not a leg" <<  std::endl;
             }
         }
 
         // first step of selection of legs volunteers 
         int legs_detected = 0, index_leg_1 = 0, index_leg_2 = 0;
+
         // more than two legs detected
         if (number_legs > 2){
             index_leg_1 = 0;
@@ -541,6 +552,7 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                     }
                 }
             }
+
         // two legs detected
         }else if (number_legs == 2){
             index_leg_1 = 0;
@@ -563,6 +575,7 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                     }
                 }
             }
+
         // one legs detected
         }else if (number_legs == 1){
             legs_detected = 1;
@@ -587,7 +600,7 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                 kf_init = false;
                 robot_odom_init = false;
                 counter_no_legs = 0;
-                cout<< "no legs for long time" << endl;
+                std::cout<< "no legs for long time" << std::endl;
             }
         }else if (legs_detected == 1){
             counter_no_legs = 0;
@@ -597,7 +610,7 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
             leg_2_y_odom    = 0;
             legs_points_1   = legs_ponits[index_leg_1];
             legs_points_2   = 0;
-            //cout<< "one leg detected" << endl;
+            // cout<< "one leg detected" << endl;
         }else if (legs_detected == 2){
             counter_no_legs = 0;
             leg_1_x_odom    = robot_x_odom - (legs_center_x[index_leg_1] * cos(robot_yaw_odom) - legs_center_y[index_leg_1] * sin(robot_yaw_odom));
@@ -606,8 +619,8 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
             leg_2_y_odom    = robot_y_odom - (legs_center_x[index_leg_2] * sin(robot_yaw_odom) + legs_center_y[index_leg_2] * cos(robot_yaw_odom));
             legs_points_1   = legs_ponits[index_leg_1];
             legs_points_2   = legs_ponits[index_leg_2];
+            // cout<< "two legs detected" << endl;
         }
-
 
         // initial human pose
         if (human_odom_init == false){
@@ -756,7 +769,8 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                 right_leg_measure_x = right_leg_predict_x_odom;
                 right_leg_measure_y = right_leg_predict_y_odom;
             }
-  
+
+            // TODO: implement more than 2 legs detected
 
             // estimation of human orientation by relative position of legs
             // human position measure
@@ -1001,7 +1015,8 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
                 nlopt_set_upper_bounds(opt, ub);
 
                 // objective function
-                nlopt_set_max_objective(opt, gaitParametersOptimizationFunction, NULL);
+                // nlopt_set_max_objective(opt, gaitParametersOptimizationFunction, NULL);
+                nlopt_set_max_objective(opt, gaitParametersOptimizationFunction, &f_max);
 
                 // stopping criterion
                 nlopt_set_xtol_rel(opt, tol);
@@ -1069,13 +1084,21 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
             moyenne_yaw_history_past = new_moyenne_yaw_history;
 
             human_yaw_odom_for_human_following_module = headingCalibration(new_moyenne_yaw_history);
+            tf::Quaternion q_human;
+            q_human.setRPY(0, 0, human_yaw_odom_for_human_following_module);
 
             // set odom human 
-            odom_human_for_human_following_module.header.stamp                 = ros::Time::now();
-            odom_human_for_human_following_module.header.frame_id              = "odom_human_for_human_following_module";
-            odom_human_for_human_following_module.pose.pose.position.x         = human_x_odom;
-            odom_human_for_human_following_module.pose.pose.position.y         = human_y_odom;
-            odom_human_for_human_following_module.pose.pose.orientation.z      = human_yaw_odom_for_human_following_module;
+            // odom_human_for_human_following_module.header.stamp                 = ros::Time::now();
+            // odom_human_for_human_following_module.header.frame_id              = 'base_footprint';
+            odom_human_for_human_following_module.header                       = msg->header;
+            odom_human_for_human_following_module.child_frame_id               = "odom_human";
+            odom_human_for_human_following_module.pose.pose.position.x         = -human_x_odom;
+            odom_human_for_human_following_module.pose.pose.position.y         = -human_y_odom;
+            // odom_human_for_human_following_module.pose.pose.orientation.z      = human_yaw_odom_for_human_following_module;
+            odom_human_for_human_following_module.pose.pose.orientation.x      = q_human.x();
+            odom_human_for_human_following_module.pose.pose.orientation.y      = q_human.y();
+            odom_human_for_human_following_module.pose.pose.orientation.z      = q_human.z();
+            odom_human_for_human_following_module.pose.pose.orientation.w      = q_human.w();
             odom_human_for_human_following_module.twist.twist.linear.x         = human_vel_x_odom;
             odom_human_for_human_following_module.twist.twist.linear.y         = human_vel_y_odom;
             odom_human_for_human_following_module.twist.twist.angular.z        = human_vel_yaw_odom;
@@ -1086,12 +1109,28 @@ void HumanTrackingModule::laserScanCallback(const sensor_msgs::LaserScan::ConstP
             double left_y_in_robot     = -(human_x_odom - robot_x_odom) * sin(-robot_yaw_odom)   - (human_y_odom - robot_y_odom) * cos(-robot_yaw_odom);
 
             static tf::TransformBroadcaster br_41;
-            tf::Transform transform_41;
-            transform_41.setOrigin( tf::Vector3(left_x_in_robot, left_y_in_robot, 0.0) );
+            // tf::Transform transform_41;
+            geometry_msgs::TransformStamped transform_41;
+
+            transform_41.header = msg->header;
+            transform_41.child_frame_id = "odom_human";
+
+            // transform_41.setOrigin( tf::Vector3(left_x_in_robot, left_y_in_robot, 0.0) );
+            transform_41.transform.translation.x = left_x_in_robot;
+            transform_41.transform.translation.y = left_y_in_robot;
+            transform_41.transform.translation.z = 0.0;
+
+            
             tf::Quaternion q_41;
             q_41.setRPY(0, 0, human_yaw_odom-robot_yaw_odom);
-            transform_41.setRotation(q_41);
-            br_41.sendTransform(tf::StampedTransform(transform_41, ros::Time::now(), "hokuyo1_laser_link", "human"));
+            // transform_41.setRotation(q_41);
+            transform_41.transform.rotation.x = q_41.x();
+            transform_41.transform.rotation.y = q_41.y();
+            transform_41.transform.rotation.z = q_41.z();
+            transform_41.transform.rotation.w = q_41.w();
+
+            // br_41.sendTransform(tf::StampedTransform(transform_41, ros::Time::now(), "base_footprint", "odom_human"));
+            br_41.sendTransform(transform_41);
 
             if (isnan(human_orientation_increment)|| isnan(human_yaw_odom)){
                 cout<<"bad calcul"<< endl;  

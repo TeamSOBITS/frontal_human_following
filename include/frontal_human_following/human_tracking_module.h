@@ -61,7 +61,8 @@ private:
     // Laser Scan
     static double delta_t_laser;
     static double bias_lidar_robot, laser_range_max, laserScan_rad_range;
-    static double LaserScan_filtered_x[512], LaserScan_filtered_y[512];
+    // static double LaserScan_filtered_x[512], LaserScan_filtered_y[512];
+    static double LaserScan_filtered_x[513], LaserScan_filtered_y[513];
     static double leg_1_x_odom, leg_1_y_odom, leg_2_x_odom, leg_2_y_odom;
     static int LaserScan_size, LaserScan_filtered_number_clusters, number_legs, legs_points_1, legs_points_2;
     static int counter_nombre_clusters, LaserScan_filtered_clusters_start_end[100];
