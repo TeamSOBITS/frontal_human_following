@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model
+  href="http://download.ros.org/schema/package_format3.xsd"
+  schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>frontal_human_following</name>
+  <version>0.0.0</version>
+  <description>
+    The frontal_human_following package
+  </description>
+  <maintainer email="choi.7f@gmail.com">Team SOBITS</maintainer>
+
+  <license>BSD</license>
+
+  <url type="website">https://home.soka.ac.jp/~choi/index.html</url>
+  <url type="repository">https://github.com/TeamSOBITS/frontal_human_following</url>
+  <url type="bugtracker">https://github.com/TeamSOBITS/frontal_human_following/issues</url>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>roscpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf</depend>
+
+  <!-- The export tag contains other, unspecified, tags -->
+  <export>
+    <!-- Other tools can request additional information be placed here -->
+
+  </export>
+</package>
