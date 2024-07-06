@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.10.2)
 project(frontal_human_following)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++11)
+## Compile as C++11, supported in ROS Noetic and newer
+add_compile_options(-std=c++14)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -135,7 +135,7 @@ include_directories(
 
 ## Declare a C++ library
 add_library(${PROJECT_NAME}
-  src/frontal_human_following.cpp
+  # src/frontal_human_following.cpp
   src/human_tracking_module.cpp
   # include/${PROJECT_NAME}/human_tracking_module.h
   # include/${PROJECT_NAME}/human_tracking_module.h
@@ -164,6 +164,12 @@ add_executable(${PROJECT_NAME}_tracking_module src/human_tracking_module.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}_node
+  ${catkin_LIBRARIES}
+  Eigen3::Eigen
+  nlopt
+)
+
+target_link_libraries(${PROJECT_NAME}_tracking_module
   ${catkin_LIBRARIES}
   Eigen3::Eigen
   nlopt
