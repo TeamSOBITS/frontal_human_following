@@ -12,13 +12,13 @@ public:
     void run();  // Main run function declaration
 
 private:
-    void dead_man_Callback(const std_msgs::Bool::ConstPtr& msg);
+    // void dead_man_Callback(const std_msgs::Bool::ConstPtr& msg);
     void human_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg);
     void robot_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg);
     double heading_calibration(double yaw_original);
     double set_limit_velocity_by_velocity_increment(double vel_input, double vel_limit, double acc);
     double set_upper_lower_limits_velocity(double velocity_input, double upper, double lower);
-    ros::Subscriber sub_dead_man;
+    // ros::Subscriber sub_dead_man;
     ros::Subscriber sub_human_pose;
     ros::Subscriber sub_robot_pose;
     ros::Publisher pub_vel_robot;
@@ -47,7 +47,7 @@ private:
     double distance2destination_past, difference_yaw_human_robot_past;
     bool move_sideway;  // Sideways flag
     bool human_odom_init;  // Human pose initialization flag
-    bool dead_man;  // Deadman switch flag
+    // bool dead_man;  // Deadman switch flag
 };
 
 #endif

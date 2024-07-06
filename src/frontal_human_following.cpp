@@ -1,6 +1,7 @@
 #include <frontal_human_following/frontal_human_following.h>
 
 // Define and initialize the global variables
+// TODO: Define and initialize the global variables with ROS parameters
 geometry_msgs::Twist vel_robot_real_;
 double safety_radius = 1.0;
 double vel_robot_linear_max_x = 0.7, vel_robot_linear_max_y = 0.7, vel_robot_angular_max_z = 0.9;
@@ -21,19 +22,19 @@ double robot_velocity_direction_human, robot_velocity_direction_robot;
 double distance2destination_past, difference_yaw_human_robot_past;
 bool move_sideway = false;
 bool human_odom_init = false;
-bool dead_man = true;
+// bool dead_man = true;
 
 FrontalHumanFollowing::FrontalHumanFollowing() {
     // Initialize the ROS node
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~");
 
     // Subscribe to ROS topics
-    sub_dead_man = nh.subscribe("/dead_man", 150, &FrontalHumanFollowing::dead_man_Callback, this);
-    sub_human_pose = nh.subscribe("/odom_human_for_human_following_module", 150, &FrontalHumanFollowing::human_pose_odom_Callback, this);
+    // sub_dead_man = nh.subscribe("/dead_man", 150, &FrontalHumanFollowing::dead_man_Callback, this);
+    sub_human_pose = nh.subscribe("/human_tracking_module/odom_human", 150, &FrontalHumanFollowing::human_pose_odom_Callback, this);
     sub_robot_pose = nh.subscribe("/odom", 150, &FrontalHumanFollowing::robot_pose_odom_Callback, this);
 
     // Create ROS topic publisher
-    pub_vel_robot = nh.advertise<geometry_msgs::Twist>("/summit_xl_controller/cmd_vel", 150);
+    pub_vel_robot = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 150);
 }
 
 
@@ -55,11 +56,11 @@ void FrontalHumanFollowing::run() {
 }
 
 
-
-void FrontalHumanFollowing::dead_man_Callback(const std_msgs::Bool::ConstPtr& msg) {
-    // Get the 'data' value from the message and store it in the class member variable 'dead_man'
-    dead_man = msg->data;
-}
+// TODO: delete
+// void FrontalHumanFollowing::dead_man_Callback(const std_msgs::Bool::ConstPtr& msg) {
+//     // Get the 'data' value from the message and store it in the class member variable 'dead_man'
+//     dead_man = msg->data;
+// }
 
 void FrontalHumanFollowing::human_pose_odom_Callback(const nav_msgs::Odometry::ConstPtr& msg) {
     // Get human pose information from the message and store it in class member variables
@@ -196,11 +197,11 @@ void FrontalHumanFollowing::robot_pose_odom_Callback(const nav_msgs::Odometry::C
         vel_robot_recommand_by_velocity_field_z = set_upper_lower_limits_velocity(vel_robot_recommand_by_velocity_field_z, vel_robot_angular_max_z, vel_robot_angular_min_z);
 
         // robot stops when the safety key is released
-        if (dead_man == true) {
-            vel_robot_real_y_past = 0;
-            vel_robot_real_x_past = 0;
-            vel_robot_real_z_past = 0; 
-        }
+        // if (dead_man == true) {
+        //     vel_robot_real_y_past = 0;
+        //     vel_robot_real_x_past = 0;
+        //     vel_robot_real_z_past = 0; 
+        // }
 
         // calcul velocity real by velocity past and velocity recommand
         double velocity_increment_x = set_upper_lower_limits_velocity(vel_robot_recommand_by_velocity_field_x - vel_robot_real_x_past, 0.5, 0.0);
