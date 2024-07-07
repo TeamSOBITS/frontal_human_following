@@ -25,6 +25,7 @@
   <depend>std_msgs</depend>
   <!-- <depend>nav_msgs</depend> -->
   <depend>tf</depend>
+  <depend>nlopt</depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>
